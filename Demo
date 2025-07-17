@@ -1,0 +1,281 @@
+Ah! ✅ Now I understand your full requirement clearly.
+
+You want each stage in the pipeline to:
+
+1. Create its own *_passed.txt and *_failed.txt files to indicate success or failure.
+
+
+2. The next stage should read the *_passed.txt of the previous stage before proceeding.
+
+If the previous stage failed (*_failed.txt exists or *_passed.txt missing), the current stage should exit early.
+
+
+
+
+This will make your pipeline self-validating at each step. Let’s design it properly.
+
+
+---
+
+✅ Updated Workflow
+
+Each stage does:
+
+Create:
+
+lint_passed.txt / lint_failed.txt
+
+convert_passed.txt / convert_failed.txt
+
+run_passed.txt / run_failed.txt
+
+compare_passed.txt / compare_failed.txt
+
+
+Before starting, check the previous stage’s *_passed.txt.
+
+
+
+---
+
+📝 1. Updated Scripts
+
+
+---
+
+🧹 Lint_sas.py
+
+# Lint_sas.py
+import os
+
+log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
+os.makedirs(log_dir, exist_ok=True)
+
+passed_file = os.path.join(log_dir, "lint_passed.txt")
+failed_file = os.path.join(log_dir, "lint_failed.txt")
+
+try:
+    print("🧹 Simulating linting of SAS files...")
+    # Simulate success
+    with open(passed_file, "w") as f:
+        f.write("✅ Lint check passed.\n")
+    # Remove fail file if exists
+    if os.path.exists(failed_file):
+        os.remove(failed_file)
+    print("✅ Linting completed.")
+except Exception as e:
+    with open(failed_file, "w") as f:
+        f.write(f"❌ Lint check failed: {e}\n")
+    print("❌ Linting failed.")
+    exit(1)
+
+
+---
+
+🔄 Convert_sas.py
+
+# Convert_sas.py
+import os
+import shutil
+
+log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
+os.makedirs(log_dir, exist_ok=True)
+
+passed_file = os.path.join(log_dir, "convert_passed.txt")
+failed_file = os.path.join(log_dir, "convert_failed.txt")
+
+# Check previous stage
+lint_passed = os.path.join(log_dir, "lint_passed.txt")
+if not os.path.exists(lint_passed):
+    print("❌ Previous stage (lint) failed or not run. Exiting.")
+    with open(failed_file, "w") as f:
+        f.write("❌ Conversion skipped because lint failed.\n")
+    exit(1)
+
+try:
+    print("🔄 Simulating conversion of SAS files...")
+    # Simulate success
+    with open(passed_file, "w") as f:
+        f.write("✅ Conversion passed.\n")
+    if os.path.exists(failed_file):
+        os.remove(failed_file)
+    print("✅ Conversion completed.")
+except Exception as e:
+    with open(failed_file, "w") as f:
+        f.write(f"❌ Conversion failed: {e}\n")
+    print("❌ Conversion failed.")
+    exit(1)
+
+
+---
+
+🚀 run_sas.sh
+
+#!/bin/bash
+
+echo "🚀 Simulating SAS program execution..."
+
+# Paths
+LOG_DIR="${CURRENT_LOG_PATH:-./logs}"
+PASSED_FILE="$LOG_DIR/run_passed.txt"
+FAILED_FILE="$LOG_DIR/run_failed.txt"
+PREV_PASSED_FILE="$LOG_DIR/convert_passed.txt"
+
+mkdir -p "$LOG_DIR"
+
+# Check previous stage
+if [ ! -f "$PREV_PASSED_FILE" ]; then
+    echo "❌ Previous stage (convert) failed or not run. Exiting."
+    echo "❌ Run stage skipped because convert failed." > "$FAILED_FILE"
+    exit 1
+fi
+
+# Simulate success
+echo "✅ SAS run simulation completed." > "$PASSED_FILE"
+[ -f "$FAILED_FILE" ] && rm "$FAILED_FILE"
+echo "✅ Dummy SAS run successful. Log saved to $PASSED_FILE"
+
+
+---
+
+🧪 Compare_outputs.py
+
+# Compare_outputs.py
+import os
+
+log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
+os.makedirs(log_dir, exist_ok=True)
+
+passed_file = os.path.join(log_dir, "compare_passed.txt")
+failed_file = os.path.join(log_dir, "compare_failed.txt")
+
+# Check previous stage
+run_passed = os.path.join(log_dir, "run_passed.txt")
+if not os.path.exists(run_passed):
+    print("❌ Previous stage (run) failed or not run. Exiting.")
+    with open(failed_file, "w") as f:
+        f.write("❌ Comparison skipped because run failed.\n")
+    exit(1)
+
+try:
+    print("🧪 Simulating comparison of outputs...")
+    # Simulate success
+    with open(passed_file, "w") as f:
+        f.write("✅ Comparison passed.\n")
+    if os.path.exists(failed_file):
+        os.remove(failed_file)
+    print("✅ Comparison completed.")
+except Exception as e:
+    with open(failed_file, "w") as f:
+        f.write(f"❌ Comparison failed: {e}\n")
+    print("❌ Comparison failed.")
+    exit(1)
+
+
+---
+
+📝 2. Updated .gitlab-ci.yml
+
+Each stage now checks for the previous stage’s *_passed.txt.
+
+stages:
+  - lint
+  - convert
+  - run
+  - compare
+  - deploy
+  - notify
+
+variables:
+  CURRENT_LOG_PATH: "/tmp/viya_logs"
+  VIYA_CODE_PATH: "/tmp/viya_code"
+  SCRIPTS_PATH: "/tmp/scripts"
+  EMAIL_SUBJECT: "Viya Deployment Notification"
+
+lint:
+  stage: lint
+  script:
+    - echo "🧹 Linting SAS files..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        mkdir -p $CURRENT_LOG_PATH &&
+        python3 $SCRIPTS_PATH/Lint_sas.py
+      "
+
+convert:
+  stage: convert
+  script:
+    - echo "🔄 Converting SAS files..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        python3 $SCRIPTS_PATH/Convert_sas.py
+      "
+
+run:
+  stage: run
+  script:
+    - echo "🚀 Running SAS programs..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        chmod +x $SCRIPTS_PATH/run_sas.sh &&
+        $SCRIPTS_PATH/run_sas.sh
+      "
+
+compare:
+  stage: compare
+  script:
+    - echo "🧪 Comparing outputs..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        python3 $SCRIPTS_PATH/Compare_outputs.py
+      "
+
+deploy:
+  stage: deploy
+  script:
+    - echo "📦 Deploying to PROD..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        if [ -f \"$CURRENT_LOG_PATH/compare_passed.txt\" ]; then
+          echo '✅ Deployment completed.' > $CURRENT_LOG_PATH/deploy_log.txt
+        else
+          echo '❌ Deployment skipped because compare failed.' > $CURRENT_LOG_PATH/deploy_failed.txt
+          exit 1
+        fi
+      "
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+notify:
+  stage: notify
+  script:
+    - echo "📧 Sending email notification..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST "
+        python3 $SCRIPTS_PATH/Send_email.py \
+          \"$CURRENT_LOG_PATH\" \
+          \"$EMAIL_SUBJECT\" \
+          \"$GITLAB_USER_EMAIL\"
+      "
+  when: always
+
+
+---
+
+✅ Key Features
+
+Each stage creates *_passed.txt and *_failed.txt.
+
+Stages fail early if the previous stage didn’t pass.
+
+This mimics a real workflow dependency.
+
+
+
+---
+
+Do you want me to:
+✅ Bundle all these scripts into a single ZIP folder (so you can drop into $SCRIPTS_PATH right away)?
+✅ Or show a folder structure and commands to set it up directly on your server?
+
+Which one should I prepare for you?
