@@ -233,16 +233,42 @@ echo "✅ Email sent to $EMAIL_RECIPIENT"
 
 
 ---
+deploy:
+  stage: deploy
+  script:
+    - echo "🚚 Starting Deployment for $GROUP_NAME/$APP_NAME ..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST bash -c "'
+        set -e
 
-🚀 Ready To Use
+        echo \"📦 Reading test_passed.txt for deployment...\"
+        TEST_PASSED_FILE=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP/test_passed.txt\"
+        if [[ ! -f \"\$TEST_PASSED_FILE\" ]]; then
+          echo \"❌ No test_passed.txt found. Deployment aborted.\"
+          exit 1
+        fi
 
-✅ These are real scripts now consuming variables from pipeline.
-✅ You just need to add these into Automation/ and they will use exported paths from .gitlab-ci.yml.
+        BACKUP_TIME=\$(date +'%Y%m%d_%H%M%S')
+        DEPLOYED_COUNT=0
 
+        while IFS= read -r job; do
+          if [[ -f \"$VIYA_CODE_PATH/\$job\" ]]; then
+            echo \"🗄 Backing up \$job to Viya_backup_code/\"
+            cp \"$VIYA_CODE_PATH/\$job\" \"$BACKUP_PATH/\${job%.sas}_\${BACKUP_TIME}.sas\"
 
----
+            echo \"📂 Moving \$job to Prod/Viya_code/\"
+            mv \"$VIYA_CODE_PATH/\$job\" \"$PROD_PATH/Viya_code/\"
+            echo \"\$job\" >> \"$LOGS_PATH/pipeline_logs/$TIMESTAMP/deployment_passed.txt\"
+            DEPLOYED_COUNT=\$((DEPLOYED_COUNT + 1))
+          else
+            echo \"⚠️  Skipping \$job. File not found in Viya_code.\"
+          fi
+        done < \"\$TEST_PASSED_FILE\"
 
-Do you want me to:
+        echo \"🧹 Cleaning up Viya_code folder in Discovery...\"
+        rm -rf \"$VIYA_CODE_PATH\"/*
 
-✅ Bundle all of these into a single zip and share a full .gitlab-ci.yml with these enhancements?
-✅ Or show GitLab UI log simulation (how it will look stage by stage)?
+        echo \"✅ Deployment completed: \$DEPLOYED_COUNT jobs moved to Prod.\"
+      '"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
