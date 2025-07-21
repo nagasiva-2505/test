@@ -25,10 +25,22 @@ for stage in lint convert run test deploy; do
     pass_file="$CURRENT_LOG_PATH/${stage}_passed.txt"
     fail_file="$CURRENT_LOG_PATH/${stage}_failed.txt"
 
-    # Read counts
-    pass_count=$( [ -f "$pass_file" ] && grep -c . "$pass_file" || echo 0 )
-    fail_count=$( [ -f "$fail_file" ] && grep -c . "$fail_file" || echo 0 )
-    total_count=$((pass_count + fail_count))
+    if [ -f "$pass_file" ] || [ -f "$fail_file" ]; then
+        # Read counts if files exist
+        pass_count=$( [ -f "$pass_file" ] && grep -c . "$pass_file" || echo 0 )
+        fail_count=$( [ -f "$fail_file" ] && grep -c . "$fail_file" || echo 0 )
+        total_count=$((pass_count + fail_count))
+    else
+        # Warn if no files for stage
+        pass_count=0
+        fail_count=0
+        total_count=0
+        EMAIL_BODY+="<tr style='background-color:#fff3cd;'>
+                      <td><b>${stage^}</b></td>
+                      <td colspan='3' style='color:orange;'>⚠️ No output files found for this stage</td>
+                    </tr>"
+        continue
+    fi
 
     EMAIL_BODY+="<tr>
                     <td><b>${stage^}</b></td>
@@ -42,29 +54,33 @@ EMAIL_BODY+="</table><br>"
 
 # Show detailed lists for each stage
 for stage in lint convert run test deploy; do
-    EMAIL_BODY+="<h3 style='color:#34495E;'>📂 ${stage^} Stage Details</h3>"
-
     pass_file="$CURRENT_LOG_PATH/${stage}_passed.txt"
     fail_file="$CURRENT_LOG_PATH/${stage}_failed.txt"
 
-    if [ -f "$pass_file" ]; then
-        EMAIL_BODY+="<p style='color:green;'><b>✅ Passed Jobs:</b></p><ul>"
-        while IFS= read -r job; do
-            EMAIL_BODY+="<li>$job</li>"
-        done < "$pass_file"
-        EMAIL_BODY+="</ul>"
-    else
-        EMAIL_BODY+="<p style='color:green;'>✅ No passed jobs</p>"
-    fi
+    EMAIL_BODY+="<h3 style='color:#34495E;'>📂 ${stage^} Stage Details</h3>"
 
-    if [ -f "$fail_file" ]; then
-        EMAIL_BODY+="<p style='color:red;'><b>❌ Failed Jobs:</b></p><ul>"
-        while IFS= read -r job; do
-            EMAIL_BODY+="<li>$job</li>"
-        done < "$fail_file"
-        EMAIL_BODY+="</ul>"
+    if [ -f "$pass_file" ] || [ -f "$fail_file" ]; then
+        if [ -f "$pass_file" ]; then
+            EMAIL_BODY+="<p style='color:green;'><b>✅ Passed Jobs:</b></p><ul>"
+            while IFS= read -r job; do
+                EMAIL_BODY+="<li>$job</li>"
+            done < "$pass_file"
+            EMAIL_BODY+="</ul>"
+        else
+            EMAIL_BODY+="<p style='color:green;'>✅ No passed jobs</p>"
+        fi
+
+        if [ -f "$fail_file" ]; then
+            EMAIL_BODY+="<p style='color:red;'><b>❌ Failed Jobs:</b></p><ul>"
+            while IFS= read -r job; do
+                EMAIL_BODY+="<li>$job</li>"
+            done < "$fail_file"
+            EMAIL_BODY+="</ul>"
+        else
+            EMAIL_BODY+="<p style='color:red;'>❌ No failed jobs</p>"
+        fi
     else
-        EMAIL_BODY+="<p style='color:red;'>❌ No failed jobs</p>"
+        EMAIL_BODY+="<p style='color:orange;'>⚠️ No output files found for this stage. It may have been skipped or failed early.</p>"
     fi
 done
 
