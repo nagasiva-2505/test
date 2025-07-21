@@ -1,170 +1,283 @@
-✅ Perfect. To keep things simple for your demo, we’ll make every stage just write:
-
-✅ Stage passed for the following SAS files:
- - sample.sas
-
-…into its *_passed.txt.
-
-We won’t bother dynamically listing real .sas files. This way, you get dummy logs that look clean and predictable for your CICD pipeline testing.
+Perfect ✅ Let’s update all scripts so they fully support direct log streaming into GitLab UI and behave exactly as we discussed. I’ll also show you how the output will look in the GitLab pipeline.
 
 
 ---
 
-📝 Updated Scripts (write only sample.sas in *_passed.txt)
+🚀 Updated Scripts with Direct Streaming
 
 
 ---
 
-✅ 1. Lint_sas.py
+📝 1. Lint_sas_code.py
 
-# Lint_sas.py
+#!/usr/bin/env python3
+
 import os
+import sys
 
-log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
-os.makedirs(log_dir, exist_ok=True)
+main_sas = sys.argv[1]
+sas9_code_path = sys.argv[2]
+log_path = os.path.join(os.path.dirname(main_sas), "Logs")
 
-passed_file = os.path.join(log_dir, "lint_passed.txt")
-failed_file = os.path.join(log_dir, "lint_failed.txt")
+passed_file = os.path.join(log_path, "lint_passed.txt")
+failed_file = os.path.join(log_path, "lint_failed.txt")
+
+# Ensure logs directory exists
+os.makedirs(log_path, exist_ok=True)
+
+# Clear previous log files
+open(passed_file, 'w').close()
+open(failed_file, 'w').close()
+
+print(f"🔍 Linting SAS9 code in {sas9_code_path}...", flush=True)
+
+for job in sorted(os.listdir(sas9_code_path)):
+    if job.endswith(".sas"):
+        job_path = os.path.join(sas9_code_path, job)
+        try:
+            # Simulated lint check: Fail if file contains "ERROR"
+            with open(job_path) as f:
+                content = f.read()
+                if "ERROR" in content:
+                    print(f"❌ Lint failed: {job}", flush=True)
+                    with open(failed_file, 'a') as fail_log:
+                        fail_log.write(f"{job}\n")
+                else:
+                    print(f"✅ Lint passed: {job}", flush=True)
+                    with open(passed_file, 'a') as pass_log:
+                        pass_log.write(f"{job}\n")
+        except Exception as e:
+            print(f"❌ Exception while linting {job}: {e}", flush=True)
+            with open(failed_file, 'a') as fail_log:
+                fail_log.write(f"{job}\n")
+
+print("🏁 Linting completed.", flush=True)
+
+
+---
+
+📝 2. Convert_sas9_to_viya.py
+
+#!/usr/bin/env python3
+
+import os
+import sys
+import shutil
+
+sas9_code_path = sys.argv[1]
+viya_code_path = sys.argv[2]
+log_path = os.path.join(os.path.dirname(sas9_code_path), "Logs")
+
+lint_passed_file = os.path.join(log_path, "lint_passed.txt")
+passed_file = os.path.join(log_path, "convert_passed.txt")
+failed_file = os.path.join(log_path, "convert_failed.txt")
+
+# Ensure logs directory exists
+os.makedirs(log_path, exist_ok=True)
+
+# Clear previous logs
+open(passed_file, 'w').close()
+open(failed_file, 'w').close()
+
+print(f"🔄 Converting SAS9 code to Viya in {viya_code_path}...", flush=True)
+
+# Clean viya_code_path
+shutil.rmtree(viya_code_path, ignore_errors=True)
+os.makedirs(viya_code_path, exist_ok=True)
 
 try:
-    print("🧹 Simulating linting of SAS files...")
-    with open(passed_file, "w") as f:
-        f.write("✅ Lint check passed for the following SAS files:\n")
-        f.write(" - sample.sas\n")
-    if os.path.exists(failed_file):
-        os.remove(failed_file)
-    print("✅ Linting completed. Wrote to lint_passed.txt")
-except Exception as e:
-    with open(failed_file, "w") as f:
-        f.write(f"❌ Lint check failed: {e}\n")
-    if os.path.exists(passed_file):
-        os.remove(passed_file)
-    print("❌ Linting failed.")
-    exit(1)
+    with open(lint_passed_file, 'r') as f:
+        jobs = [line.strip() for line in f if line.strip()]
+except FileNotFoundError:
+    print("❌ lint_passed.txt not found. Stopping conversion.", flush=True)
+    sys.exit(1)
+
+for job in jobs:
+    try:
+        src = os.path.join(sas9_code_path, job)
+        dest = os.path.join(viya_code_path, job.replace(".sas", "_viya.sas"))
+        shutil.copyfile(src, dest)
+        print(f"✅ Converted: {job} → {os.path.basename(dest)}", flush=True)
+        with open(passed_file, 'a') as pass_log:
+            pass_log.write(f"{job}\n")
+    except Exception as e:
+        print(f"❌ Conversion failed: {job} - {e}", flush=True)
+        with open(failed_file, 'a') as fail_log:
+            fail_log.write(f"{job}\n")
+
+print("🏁 Conversion completed.", flush=True)
 
 
 ---
 
-✅ 2. Convert_sas.py
-
-# Convert_sas.py
-import os
-
-log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
-os.makedirs(log_dir, exist_ok=True)
-
-passed_file = os.path.join(log_dir, "convert_passed.txt")
-failed_file = os.path.join(log_dir, "convert_failed.txt")
-
-# Check previous stage
-lint_passed = os.path.join(log_dir, "lint_passed.txt")
-if not os.path.exists(lint_passed):
-    print("❌ Previous stage (lint) failed or not run. Exiting.")
-    with open(failed_file, "w") as f:
-        f.write("❌ Conversion skipped because lint failed.\n")
-    if os.path.exists(passed_file):
-        os.remove(passed_file)
-    exit(1)
-
-try:
-    print("🔄 Simulating conversion of SAS files...")
-    with open(passed_file, "w") as f:
-        f.write("✅ Conversion passed for the following SAS files:\n")
-        f.write(" - sample.sas\n")
-    if os.path.exists(failed_file):
-        os.remove(failed_file)
-    print("✅ Conversion completed. Wrote to convert_passed.txt")
-except Exception as e:
-    with open(failed_file, "w") as f:
-        f.write(f"❌ Conversion failed: {e}\n")
-    if os.path.exists(passed_file):
-        os.remove(passed_file)
-    print("❌ Conversion failed.")
-    exit(1)
-
-
----
-
-✅ 3. run_sas.sh
+📝 3. Run_viya_jobs.sh
 
 #!/bin/bash
+set -euo pipefail
 
-echo "🚀 Simulating SAS program execution..."
+MAIN_SAS="$1"
+VIYA_CODE_PATH="$2"
+LOGS_PATH="$3"
+PASSED_FILE="$LOGS_PATH/convert_passed.txt"
+RUN_PASSED_FILE="$LOGS_PATH/run_passed.txt"
+RUN_FAILED_FILE="$LOGS_PATH/run_failed.txt"
 
-# Paths
-LOG_DIR="${CURRENT_LOG_PATH:-./logs}"
-PASSED_FILE="$LOG_DIR/run_passed.txt"
-FAILED_FILE="$LOG_DIR/run_failed.txt"
-PREV_PASSED_FILE="$LOG_DIR/convert_passed.txt"
+# Clear previous logs
+> "$RUN_PASSED_FILE"
+> "$RUN_FAILED_FILE"
 
-mkdir -p "$LOG_DIR"
+echo "🚀 Running Viya jobs for: $MAIN_SAS"
 
-# Check previous stage
-if [ ! -f "$PREV_PASSED_FILE" ]; then
-    echo "❌ Previous stage (convert) failed or not run. Exiting."
-    echo "❌ Run stage skipped because convert failed." > "$FAILED_FILE"
-    [ -f "$PASSED_FILE" ] && rm "$PASSED_FILE"
-    exit 1
-fi
+while IFS= read -r job; do
+  viya_job="${job%.sas}_viya.sas"
+  viya_job_path="$VIYA_CODE_PATH/$viya_job"
 
-# Simulate success
-echo "✅ SAS run simulation completed for the following SAS files:" > "$PASSED_FILE"
-echo " - sample.sas" >> "$PASSED_FILE"
+  if [[ -f "$viya_job_path" ]]; then
+    echo "▶ Running: $viya_job"
+    if grep -q "FAIL" "$viya_job_path"; then
+      echo "❌ Run failed: $viya_job"
+      echo "$job" >> "$RUN_FAILED_FILE"
+    else
+      echo "✅ Run passed: $viya_job"
+      echo "$job" >> "$RUN_PASSED_FILE"
+    fi
+  else
+    echo "❌ Missing Viya job: $viya_job"
+    echo "$job" >> "$RUN_FAILED_FILE"
+  fi
+done < "$PASSED_FILE"
 
-[ -f "$FAILED_FILE" ] && rm "$FAILED_FILE"
-echo "✅ Dummy SAS run successful. Log saved to $PASSED_FILE"
+echo "🏁 Viya job execution completed."
 
 
 ---
 
-✅ 4. Compare_outputs.py
+📝 4. Compare_outputs.py
 
-# Compare_outputs.py
+(This is a dummy implementation for now.)
+
+#!/usr/bin/env python3
+
 import os
+import sys
 
-log_dir = os.environ.get("CURRENT_LOG_PATH", "./logs")
-os.makedirs(log_dir, exist_ok=True)
+baseline_outputs = sys.argv[1]
+viya_outputs = sys.argv[2]
+log_path = os.path.join(os.path.dirname(baseline_outputs), "../Logs")
 
-passed_file = os.path.join(log_dir, "compare_passed.txt")
-failed_file = os.path.join(log_dir, "compare_failed.txt")
+run_passed_file = os.path.join(log_path, "run_passed.txt")
+passed_file = os.path.join(log_path, "test_passed.txt")
+failed_file = os.path.join(log_path, "test_failed.txt")
 
-# Check previous stage
-run_passed = os.path.join(log_dir, "run_passed.txt")
-if not os.path.exists(run_passed):
-    print("❌ Previous stage (run) failed or not run. Exiting.")
-    with open(failed_file, "w") as f:
-        f.write("❌ Comparison skipped because run failed.\n")
-    if os.path.exists(passed_file):
-        os.remove(passed_file)
-    exit(1)
+# Clear previous logs
+open(passed_file, 'w').close()
+open(failed_file, 'w').close()
+
+print(f"🧪 Comparing outputs between {baseline_outputs} and {viya_outputs}...", flush=True)
 
 try:
-    print("🧪 Simulating comparison of outputs...")
-    with open(passed_file, "w") as f:
-        f.write("✅ Comparison passed for the following SAS files:\n")
-        f.write(" - sample.sas\n")
-    if os.path.exists(failed_file):
-        os.remove(failed_file)
-    print("✅ Comparison completed. Wrote to compare_passed.txt")
-except Exception as e:
-    with open(failed_file, "w") as f:
-        f.write(f"❌ Comparison failed: {e}\n")
-    if os.path.exists(passed_file):
-        os.remove(passed_file)
-    print("❌ Comparison failed.")
-    exit(1)
+    with open(run_passed_file, 'r') as f:
+        jobs = [line.strip() for line in f if line.strip()]
+except FileNotFoundError:
+    print("❌ run_passed.txt not found. Stopping testing.", flush=True)
+    sys.exit(1)
+
+for job in jobs:
+    # Simulate comparison: Pass if filename does not contain "mismatch"
+    if "mismatch" in job:
+        print(f"❌ Test failed: {job}", flush=True)
+        with open(failed_file, 'a') as fail_log:
+            fail_log.write(f"{job}\n")
+    else:
+        print(f"✅ Test passed: {job}", flush=True)
+        with open(passed_file, 'a') as pass_log:
+            pass_log.write(f"{job}\n")
+
+print("🏁 Testing completed.", flush=True)
 
 
 ---
 
-🚀 What happens now?
+📬 Email Script
 
-Each stage always writes sample.sas into its *_passed.txt.
+✅ Includes pass/fail numbers and HTML formatting
+✅ Runs as a stage at the end
 
-You can see sample.sas in lint_passed.txt, convert_passed.txt, run_passed.txt, and compare_passed.txt.
+#!/bin/bash
+set -euo pipefail
 
-Pipeline stages still respect dependencies (each stage checks the previous one’s *_passed.txt).
+LOGS_PATH="$1"
+EMAIL_TO="$2"
 
+LINT_PASSED=$(wc -l < "$LOGS_PATH/lint_passed.txt" || echo 0)
+LINT_FAILED=$(wc -l < "$LOGS_PATH/lint_failed.txt" || echo 0)
+CONVERT_PASSED=$(wc -l < "$LOGS_PATH/convert_passed.txt" || echo 0)
+CONVERT_FAILED=$(wc -l < "$LOGS_PATH/convert_failed.txt" || echo 0)
+RUN_PASSED=$(wc -l < "$LOGS_PATH/run_passed.txt" || echo 0)
+RUN_FAILED=$(wc -l < "$LOGS_PATH/run_failed.txt" || echo 0)
+TEST_PASSED=$(wc -l < "$LOGS_PATH/test_passed.txt" || echo 0)
+TEST_FAILED=$(wc -l < "$LOGS_PATH/test_failed.txt" || echo 0)
+
+SUBJECT="SAS Viya Pipeline Results"
+BODY=$(cat <<EOF
+<html>
+<body>
+  <h2>📊 SAS Viya Pipeline Summary</h2>
+  <table border="1" cellpadding="5" cellspacing="0">
+    <tr><th>Stage</th><th>Passed</th><th>Failed</th><th>Total</th></tr>
+    <tr><td>Lint</td><td>$LINT_PASSED</td><td>$LINT_FAILED</td><td>$((LINT_PASSED+LINT_FAILED))</td></tr>
+    <tr><td>Convert</td><td>$CONVERT_PASSED</td><td>$CONVERT_FAILED</td><td>$((CONVERT_PASSED+CONVERT_FAILED))</td></tr>
+    <tr><td>Run</td><td>$RUN_PASSED</td><td>$RUN_FAILED</td><td>$((RUN_PASSED+RUN_FAILED))</td></tr>
+    <tr><td>Test</td><td>$TEST_PASSED</td><td>$TEST_FAILED</td><td>$((TEST_PASSED+TEST_FAILED))</td></tr>
+  </table>
+  <p><b>GitLab Pipeline:</b> <a href="$CI_PIPELINE_URL">$CI_PIPELINE_URL</a></p>
+</body>
+</html>
+EOF
+)
+
+echo "📧 Sending email report..."
+echo "$BODY" | mail -a "Content-Type: text/html" -s "$SUBJECT" "$EMAIL_TO"
 
 
 ---
+
+deploy:
+  stage: deploy
+  script:
+    - echo "🚚 Starting Deployment for $GROUP_NAME/$APP_NAME ..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST bash -c "'
+        set -e
+
+        echo \"📦 Reading test_passed.txt for deployment...\"
+        TEST_PASSED_FILE=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP/test_passed.txt\"
+        if [[ ! -f \"\$TEST_PASSED_FILE\" ]]; then
+          echo \"❌ No test_passed.txt found. Deployment aborted.\"
+          exit 1
+        fi
+
+        BACKUP_TIME=\$(date +'%Y%m%d_%H%M%S')
+        DEPLOYED_COUNT=0
+
+        while IFS= read -r job; do
+          if [[ -f \"$VIYA_CODE_PATH/\$job\" ]]; then
+            echo \"🗄 Backing up \$job to Viya_backup_code/\"
+            cp \"$VIYA_CODE_PATH/\$job\" \"$BACKUP_PATH/\${job%.sas}_\${BACKUP_TIME}.sas\"
+
+            echo \"📂 Moving \$job to Prod/Viya_code/\"
+            mv \"$VIYA_CODE_PATH/\$job\" \"$PROD_PATH/Viya_code/\"
+            echo \"\$job\" >> \"$LOGS_PATH/pipeline_logs/$TIMESTAMP/deployment_passed.txt\"
+            DEPLOYED_COUNT=\$((DEPLOYED_COUNT + 1))
+          else
+            echo \"⚠️  Skipping \$job. File not found in Viya_code.\"
+          fi
+        done < \"\$TEST_PASSED_FILE\"
+
+        echo \"🧹 Cleaning up Viya_code folder in Discovery...\"
+        rm -rf \"$VIYA_CODE_PATH\"/*
+
+        echo \"✅ Deployment completed: \$DEPLOYED_COUNT jobs moved to Prod.\"
+      '"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
