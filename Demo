@@ -243,6 +243,9 @@ deploy:
 
         echo \"📦 Reading test_passed.txt for deployment...\"
         TEST_PASSED_FILE=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP/test_passed.txt\"
+        DEPLOY_PASSED_FILE=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP/deployment_passed.txt\"
+        DEPLOY_FAILED_FILE=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP/deployment_failed.txt\"
+
         if [[ ! -f \"\$TEST_PASSED_FILE\" ]]; then
           echo \"❌ No test_passed.txt found. Deployment aborted.\"
           exit 1
@@ -250,6 +253,11 @@ deploy:
 
         BACKUP_TIME=\$(date +'%Y%m%d_%H%M%S')
         DEPLOYED_COUNT=0
+        FAILED_COUNT=0
+
+        echo \"📝 Initializing deployment logs...\"
+        > \"\$DEPLOY_PASSED_FILE\"
+        > \"\$DEPLOY_FAILED_FILE\"
 
         while IFS= read -r job; do
           if [[ -f \"$VIYA_CODE_PATH/\$job\" ]]; then
@@ -258,17 +266,23 @@ deploy:
 
             echo \"📂 Moving \$job to Prod/Viya_code/\"
             mv \"$VIYA_CODE_PATH/\$job\" \"$PROD_PATH/Viya_code/\"
-            echo \"\$job\" >> \"$LOGS_PATH/pipeline_logs/$TIMESTAMP/deployment_passed.txt\"
+
+            echo \"✅ Deployed: \$job\"
+            echo \"\$job\" >> \"\$DEPLOY_PASSED_FILE\"
             DEPLOYED_COUNT=\$((DEPLOYED_COUNT + 1))
           else
-            echo \"⚠️  Skipping \$job. File not found in Viya_code.\"
+            echo \"❌ Deployment failed: \$job not found in Viya_code.\"
+            echo \"\$job\" >> \"\$DEPLOY_FAILED_FILE\"
+            FAILED_COUNT=\$((FAILED_COUNT + 1))
           fi
         done < \"\$TEST_PASSED_FILE\"
 
         echo \"🧹 Cleaning up Viya_code folder in Discovery...\"
         rm -rf \"$VIYA_CODE_PATH\"/*
 
-        echo \"✅ Deployment completed: \$DEPLOYED_COUNT jobs moved to Prod.\"
+        echo \"✅ Deployment completed.\"
+        echo \"✔️ Total Deployed: \$DEPLOYED_COUNT\"
+        echo \"❌ Total Failed Deployments: \$FAILED_COUNT\"
       '"
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -315,3 +329,23 @@ convert:
 # Similarly add -tt and -u to other stages
 
 ----------
+email:
+  stage: email
+  script:
+    - echo "📧 Sending SAS Viya Pipeline Email Report for $GROUP_NAME/$APP_NAME ..."
+    - |
+      ssh $SERVER_USER@$SERVER_HOST bash -c "'
+        set -e
+
+        echo \"🔄 Fetching log data for email...\"
+        EMAIL_SCRIPT_PATH=\"$SCRIPTS_PATH/send_email.sh\"
+        LOGS_PATH=\"$LOGS_PATH\"
+        CURRENT_LOG_PATH=\"$LOGS_PATH/pipeline_logs/$TIMESTAMP\"
+        EMAIL_RECIPIENT=\"$EMAIL_RECIPIENT\"
+        CI_PIPELINE_URL=\"$CI_PIPELINE_URL\"
+
+        echo \"🚀 Running send_email.sh on server...\"
+        bash \"\$EMAIL_SCRIPT_PATH\" \"\$LOGS_PATH\" \"\$CURRENT_LOG_PATH\" \"\$EMAIL_RECIPIENT\" \"\$CI_PIPELINE_URL\"
+      '"
+  rules:
+    - when: always
