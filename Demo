@@ -272,3 +272,46 @@ deploy:
       '"
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
+---------------
+
+
+
+stages:
+  - lint
+  - convert
+  - run-viya
+  - test
+  - deploy
+
+lint:
+  stage: lint
+  script:
+    - echo "🔍 Linting SAS9 code for $GROUP_NAME/$APP_NAME ..."
+    - |
+      ssh -tt $SERVER_USER@$SERVER_HOST "
+        set -o pipefail
+        python3 -u $SCRIPTS_PATH/Lint_sas_code.py \
+          \"$DISCOVERY_PATH/Main.sas\" \
+          \"$SAS9_CODE_PATH\"
+      "
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+
+convert:
+  stage: convert
+  script:
+    - echo "🔄 Converting SAS9 code to Viya for $GROUP_NAME/$APP_NAME ..."
+    - |
+      ssh -tt $SERVER_USER@$SERVER_HOST "
+        set -o pipefail
+        rm -rf \"$VIYA_CODE_PATH\"/*
+        python3 -u $SCRIPTS_PATH/Convert_sas9_to_viya.py \
+          \"$SAS9_CODE_PATH\" \
+          \"$VIYA_CODE_PATH\"
+      "
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+
+# Similarly add -tt and -u to other stages
+
+----------
